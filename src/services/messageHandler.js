@@ -1,16 +1,30 @@
 import whatsappService from './whatsappService.js';
+import appendToSheet from './googleSheetsService.js';
 
 class MessageHandler {
+
+  constructor(){
+    this.appointmentState = {};
+  }
+
   async handleIncomingMessage(message, senderInfo) {
     // Remove 1 from the position 2 in the from property
     const fromNumber = message.from.slice(0, 2) + message.from.slice(3);    
     /* console.log("hola  "+ fromNumber); */
+    if (this.appointmentState[fromNumber]) {        
+      const incomingMessage = message?.text?.body?.trim();        
+      await this.handleAppointmentFlow(fromNumber, incomingMessage);        
+      /* return; // Detener aquí, no procesar más */
+    }
     if (message?.type === 'text') {
       const incomingMessage = message.text.body.toLowerCase().trim();   
       if(this.isGreeting(incomingMessage)){
         await this.sendWelcomeMessage(fromNumber, message.id, senderInfo);
         await this.sendWelcomeMenu(fromNumber);
-      }else{
+      } else if(incomingMessage === 'media'){
+        await this.sendMedia(fromNumber);
+      } 
+      else {
         const response = `Echo: ${message.text.body}`;
         await whatsappService.sendMessage(fromNumber, response, message.id);
       }      
@@ -56,10 +70,13 @@ class MessageHandler {
   }
 
   async handleMenuOption(to, option){
+    console.log(option);
     let response;
-    switch (option){
+     
+    switch (option.normalize("NFD").replace(/[\u0300-\u036f]/g, "")){
       case 'agendar': 
-        response = 'Agendar Cita';
+        this.appointmentState[to] = { step: 'name'}
+        response = 'Por favor, ingresa tu nombre:';
         break;
       case 'consultar':
         response = 'realiza tu consulta';
@@ -69,6 +86,78 @@ class MessageHandler {
         break;
       default:
         response = 'Lo siento no entendí tu selección, por favor, elige una de las opciones';
+    }
+    await whatsappService.sendMessage(to, response);
+  }
+
+  async sendMedia(to) {
+/*     const mediaUrl = 'https://interactive-examples.mdn.mozilla.net/media/cc0-audio/t-rex-roar.mp3';
+    const caption = 'Archivo de audio libre de copyright';
+    const type ='audio'; */
+
+    const mediaUrl = 'https://s3.amazonaws.com/gndx.dev/medpet-video.mp4';
+    const caption = 'Archivo de video libre de copyright';
+    const type ='video';
+
+/*     const mediaUrl = 'https://www.um.es/docencia/barzana/DAWEB/Lenguaje-de-programacion-JavaScript-1.pdf';
+    const caption = 'Archivo de PDF libre de copyright';
+    const type ='document'; */
+
+    await whatsappService.sendMediaMessage(to, type, mediaUrl, caption);
+  }
+
+  completeAppointment(to) {
+    const appointment = this.appointmentState[to];
+    delete this.appointmentState[to];
+
+    const userData = [
+      to,
+      appointment.name,
+      appointment.petName,
+      appointment.petType,
+      appointment.reason,
+      new Date().toISOString()
+    ]
+
+    console.log(userData);
+    appendToSheet(userData);
+
+    return `Gracias por agendar tu cita.
+    Resumen de tu cita:
+    
+     Nombre: ${appointment.name}
+     Nombre de la mascota: ${appointment.petName}
+     Tipo de mascota: ${appointment.petType}
+     Motivo: ${appointment.reason}
+    
+    Nos pondremos en contacto contigo pronto para confirmar la fecha y hora de tu cita`;    
+  }
+
+  async handleAppointmentFlow(to, message) {
+    const state = this.appointmentState[to];
+    let response;
+
+    switch (state.step){
+      case 'name':
+        state.name = message;
+        state.step = 'petName';
+        response = "Gracias, ahora, ¿Cuál es el nombre de su mascota?";
+        break;
+      case 'petName':
+        state.petName = message;
+        state.step = 'petType';
+        response = '¿Que tipo de mascota es? (por ejemplo: perro, gato, huron, etc.)';
+        break;
+      case 'petType':
+          state.petType = message;
+          state.step = 'reason';
+          response = '¿Cuál es el motivo de la consulta?';
+          break;
+      case 'reason':
+        state.reason = message;
+        state.step = 'reason';
+        response = this.completeAppointment(to);
+        break;
     }
     await whatsappService.sendMessage(to, response);
   }
