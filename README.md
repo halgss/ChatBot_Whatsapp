@@ -1,0 +1,1 @@
+Aplicación de comunicación con el API de whatsapp, implementando un Chatbot para contestaciones automatizadas y con integracion de inteligencia artivicial mediante el API de ChatGPT. Utilizando javaScript y node js.
