@@ -1,31 +1,31 @@
 import whatsappService from './whatsappService.js';
 import appendToSheet from './googleSheetsService.js';
+import openAIService from './openAIService.js';
 
 class MessageHandler {
 
   constructor(){
     this.appointmentState = {};
+    this.assistandState = {};
   }
 
   async handleIncomingMessage(message, senderInfo) {
     // Remove 1 from the position 2 in the from property
     const fromNumber = message.from.slice(0, 2) + message.from.slice(3);    
-    /* console.log("hola  "+ fromNumber); */
-    if (this.appointmentState[fromNumber]) {        
-      const incomingMessage = message?.text?.body?.trim();        
-      await this.handleAppointmentFlow(fromNumber, incomingMessage);        
-      /* return; // Detener aquí, no procesar más */
-    }
+    
     if (message?.type === 'text') {
-      const incomingMessage = message.text.body.toLowerCase().trim();   
+      const incomingMessage = message.text.body.toLowerCase().trim(); 
+
       if(this.isGreeting(incomingMessage)){
         await this.sendWelcomeMessage(fromNumber, message.id, senderInfo);
         await this.sendWelcomeMenu(fromNumber);
       } else if(incomingMessage === 'media'){
         await this.sendMedia(fromNumber);
-      } 
-      else {
-        const response = `Echo: ${message.text.body}`;
+      } else if (this.appointmentState[fromNumber]) {        
+          await this.handleAppointmentFlow(fromNumber, incomingMessage);
+      } else if(this.assistandState[fromNumber]){
+          await this.handleAssistandFlow(fromNumber, incomingMessage);
+      } else {
         await whatsappService.sendMessage(fromNumber, response, message.id);
       }      
       await whatsappService.markAsRead(message.id);
@@ -79,6 +79,7 @@ class MessageHandler {
         response = 'Por favor, ingresa tu nombre:';
         break;
       case 'consultar':
+        this.appointmentState[to] = { step: 'question'}
         response = 'realiza tu consulta';
         break;
       case 'ubicacion':
@@ -162,6 +163,25 @@ class MessageHandler {
     await whatsappService.sendMessage(to, response);
   }
 
+  async handleAssistandFlow(to, message){
+    const state = this.assistandState[to];
+    let response;
+
+    const menuMessage = '¿La respuesta fue de tu ayuda';
+    const buttons = [
+      {type: 'reply', reply: { id: 'option_4', title: "Si"}},
+      {type: 'reply', reply: { id: 'option_5', title: 'Tengo duda'}},
+      {type: 'reply', reply: { id: 'option_6', title: 'Emergencia'}}
+    ];
+
+    if (state.step === 'question'){
+      response = await openAIService(message);
+    }
+
+    delete this.assistandState(to);
+    await whatsappService.sendMessage(to, response);
+    await whatsappService.sendInteractiveButtons(to, menuMessage, buttons);
+  }
 }
 
 export default new MessageHandler();
